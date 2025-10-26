@@ -19,6 +19,8 @@
     重建图像宽度x深度为20mm x 40mm，
     提交包含详细注释的全部源代码和报告（源代码以压缩包形式提交，报告以pdf文件提交）。
 """
+import os
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -115,18 +117,18 @@ def distance_matrix(theta_threshold=30.0):
             dist_mat[m, n, :, :] = idx
             dist_mat[n, m, :, :] = idx
 
-    np.save('distance_matrix_new.npy', dist_mat)
+    # np.save('distance_matrix_new.npy', dist_mat)
     print("Distance matrix saved as `distance_matrix.npy`")
     return dist_mat
 
-def DAS_reconstruction(data):
+def DAS_reconstruction(data, theta_threshold=30.0):
     """
     DAS算法重建图像
     :param data: 超声数据，shape=(传感器单元数, 采样点数)
     :return: 重建图像，shape=(Y, X)
     """
     # idx_matrix = np.load('distance_matrix.npy')  # 预计算距离矩阵
-    idx_matrix = distance_matrix()
+    idx_matrix = distance_matrix(theta_threshold)
     reconstruct_img = np.zeros((int(Y), int(X)))  # 重建图像初始化
     for i in range(int(X)):
         # dist_to_left = i * Pixel_Spacing + Pixel_Spacing / 2
@@ -160,7 +162,8 @@ def DAS_reconstruction(data):
             reconstruct_img[j, i] = pixel_value
     return reconstruct_img
 
-def main():
+def main(output_path='hw4'):
+    os.makedirs(output_path, exist_ok=True)
     # 读取数据文件，已经提前预存为npy格式
     from hw4_enhanced import preprocess_signal
     data = np.load('b_data.npy')
@@ -174,18 +177,21 @@ def main():
 
     # 执行DAS重建
     print(f'Starting DAS reconstruction...')
-    reconstructed_img = DAS_reconstruction(ultrasound_data)
+    reconstructed_img = [DAS_reconstruction(ultrasound_data, theta) for theta in np.linspace(15, 90, num=6)]
 
     # 显示重建图像
-    plt.imshow(reconstructed_img, cmap='gray', extent=(0, reconstructed_img.shape[1] * Pixel_Spacing, reconstructed_img.shape[0] * Pixel_Spacing, 0), origin='upper', aspect='auto')
-    plt.xlabel('Width (mm)')
-    plt.ylabel('Depth (mm)')
-    plt.title('DAS Reconstructed Image')
-    plt.colorbar(label='Intensity')
-    plt.show()
+    for img in reconstructed_img:
+        plt.imshow(img, cmap='gray', extent=(0, img.shape[1] * Pixel_Spacing, img.shape[0] * Pixel_Spacing, 0), origin='upper', aspect='auto')
+        plt.xlabel('Width (mm)')
+        plt.ylabel('Depth (mm)')
+        plt.title('DAS Reconstructed Image')
+        plt.colorbar(label='Intensity')
+        plt.show()
 
     # 保存重建图像
-    cv2.imwrite('DAS_reconstructed_image.png', (reconstructed_img / np.max(reconstructed_img) * 255).astype(np.uint8))
+    for i, theta in enumerate(np.linspace(15, 90, num=6)):
+        path = os.path.join(output_path, f'DAS_theta_{theta}.png')
+        cv2.imwrite(path, (reconstructed_img[i] / np.max(reconstructed_img[i]) * 255).astype(np.uint8))
     print('Reconstructed image saved as DAS_reconstructed_image.png')
 
 if __name__ == '__main__':
