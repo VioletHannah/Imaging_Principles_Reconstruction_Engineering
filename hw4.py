@@ -51,35 +51,52 @@ def distance_of_signal_flight(sensor_idxm, sensor_idxn, pixel_i, pixel_j):
 def time_of_signal_flight(distance):
     """
     计算距离对应的时间，实际是传感器接收到信号的采样点index
+    支持标量或数组输入，返回整数索引（numpy数组或标量）
     :param distance: 距离，单位mm
-    :return: 采样点index
+    :return: 采样点index（np.ndarray 或 int）
     """
-    time_s = distance / 1000.0 / Sound_Speed  # s
-    idx = int(time_s * Sensor_Fs)
+    time_s = np.asarray(distance) / 1000.0 / Sound_Speed  # s
+    idx = (time_s * Sensor_Fs).astype(np.int64)
+    if idx.shape == ():  # 标量
+        return int(idx)
     return idx
 
 def distance_matrix():
     """
-    预计算距离矩阵，减少重复计算
-    表示传感器m发射信号到达像素点(i,j)再到传感器n的时间(采样点index)
-    也就是传感器m/n发射信号，在(i,j)处反射，传感器n/m接收到该信号时的采样点index
-    :param size: 传感器单元数
-    :return: 距离(索引)矩阵，shape=(size+Sensor_Perceive_Range, size+Sensor_Perceive_Range, Y, X)
-    其中size为传感器单元数，Y和X为重建图像的像素数
-    额外增加Sensor_Perceive_Range是为了处理边界情况
-    例如传感器0接收传感器0发射的信号时，需要访问-4到4的传感器单元
+    预计算距离矩阵，减少重复计算（向量化实现）
+    返回：距离(索引)矩阵，dtype=np.uint32，shape=(sizeplus, sizeplus, Y, X)
+    备注：使用uint32以减少内存占用；对每个发射/接收对先计算单边距离矩阵再相加，避免像素级循环。
     """
     size = num_sensor
     sizeplus = size + 2 * Sensor_Perceive_Range
-    dist_mat = np.zeros((sizeplus, sizeplus, int(Y), int(X)))
+    X_int = int(X)
+    Y_int = int(Y)
+
+    # 使用较小的整型保存索引，节省内存
+    dist_mat = np.zeros((sizeplus, sizeplus, Y_int, X_int), dtype=np.uint32)
+
+    # 预计算传感器和像素坐标（单位：mm）
+    sensor_x = np.arange(sizeplus) * Sensor_Spacing + Sensor_Spacing / 2  # shape (sizeplus,)
+    pixel_x = np.arange(X_int) * Pixel_Spacing + Pixel_Spacing / 2       # shape (X,)
+    pixel_y = np.arange(Y_int) * Pixel_Spacing + Pixel_Spacing / 2       # shape (Y,)
+
+    # 为减少重复计算，对每个 m 先计算 dist_m(Y,X)，再与每个 n 的 dist_n 相加（向量化）
     for m in range(Sensor_Perceive_Range, size + Sensor_Perceive_Range):
+        dx_m = sensor_x[m] - pixel_x                   # shape (X,)
+        dist_m = np.sqrt(dx_m[np.newaxis, :]**2 + pixel_y[:, np.newaxis]**2)  # shape (Y,X)
+
         for n in range(m, size + Sensor_Perceive_Range):
-            for i in range(int(X)):
-                for j in range(int(Y)):
-                    dist_mat[m, n, j, i] = time_of_signal_flight(distance_of_signal_flight(m, n, i, j))
-                    dist_mat[n, m, j, i] = dist_mat[m, n, j, i]
+            dx_n = sensor_x[n] - pixel_x
+            dist_n = np.sqrt(dx_n[np.newaxis, :]**2 + pixel_y[:, np.newaxis]**2)  # shape (Y,X)
+
+            total_distance = dist_m + dist_n  # shape (Y,X)
+            # 直接向量化计算时间索引并保存为 uint32
+            idx = (total_distance / 1000.0 / Sound_Speed * Sensor_Fs).astype(np.uint32)
+            dist_mat[m, n, :, :] = idx
+            dist_mat[n, m, :, :] = idx
+
     np.save('distance_matrix.npy', dist_mat)
-    print("Distance matrix saved as 'distance_matrix.npy'")
+    print("Distance matrix saved as `distance_matrix.npy`")
     return dist_mat
 
 def DAS_reconstruction(data):
