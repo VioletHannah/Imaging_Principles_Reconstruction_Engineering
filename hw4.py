@@ -61,7 +61,7 @@ def time_of_signal_flight(distance):
         return int(idx)
     return idx
 
-def distance_matrix():
+def distance_matrix(theta_threshold=30.0):
     """
     预计算距离矩阵，减少重复计算（向量化实现）
     返回：距离(索引)矩阵，dtype=np.uint32，shape=(sizeplus, sizeplus, Y, X)
@@ -84,7 +84,7 @@ def distance_matrix():
     pixel_y = np.arange(Y_int) * Pixel_Spacing + Pixel_Spacing / 2       # shape (Y,)
 
     # 角度阈值（弧度）
-    angle_thr = np.deg2rad(30.0)
+    angle_thr = np.deg2rad(theta_threshold)
 
     # 为减少重复计算，对每个 m 先计算 dist_m(Y,X) 及其角度掩码，再与每个 n 的 dist_n 相加（向量化）
     for m in range(Sensor_Perceive_Range, size + Sensor_Perceive_Range):
