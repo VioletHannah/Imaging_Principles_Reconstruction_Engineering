@@ -148,7 +148,7 @@ def das_reconstruction_vectorized(data, apodization=True, dynamic_range_db=60, a
     return image_db
 
 
-def das_reconstruction_optimized(data, apodization=True, dynamic_range_db=60):
+def das_reconstruction_optimized(data, apodization=True, dynamic_range_db=60, apt=4):
     """
     优化的DAS重建（减少循环，提高效率）
     采用合成孔径聚焦技术(SAFT)思想
@@ -193,7 +193,7 @@ def das_reconstruction_optimized(data, apodization=True, dynamic_range_db=60):
         # 应用孔径加权
         if apodization:
             lateral_dist = np.abs(X_grid - sx) # (NUM_Y, NUM_X)
-            aperture = IMAGE_WIDTH / 4
+            aperture = IMAGE_WIDTH / apt
             weight = np.where(lateral_dist < aperture,
                               np.cos(np.pi * lateral_dist / (2 * aperture)) ** 2,
                               0)
@@ -295,7 +295,12 @@ def main(output_dir='results'):
         apt=i
     ) for i in range(2, 6)]
 
-    reconstructed_single
+    reconstructed_mono = das_reconstruction_optimized(
+        processed_data,
+        apodization=True,
+        dynamic_range_db=60
+    )
+    reconstructed_mono = enhance_image(reconstructed_mono, method='clahe')
 
     # 4. 对比不同图像增强
     enhanced_img_clahe = enhance_image(reconstructed_img[3], method='clahe')
@@ -310,6 +315,9 @@ def main(output_dir='results'):
     norm = ((reconstructed_ori - reconstructed_ori.min()) /
             (reconstructed_ori.max() - reconstructed_ori.min()) * 255).astype(np.uint8)
     cv2.imwrite(os.path.join(output_dir, 'das_original.png'), norm)
+    norm_mono = ((reconstructed_mono - reconstructed_mono.min()) /
+            (reconstructed_mono.max() - reconstructed_mono.min()) * 255).astype(np.uint8)
+    cv2.imwrite(os.path.join(output_dir, 'das_mono_apt_4_clahe.png'), norm_mono)
     cv2.imwrite(os.path.join(output_dir, 'das_enhanced_clahe.png'), enhanced_img_clahe)
     cv2.imwrite(os.path.join(output_dir, 'das_enhanced_gamma.png'), enhanced_img_gamma)
     print('图像已保存')
