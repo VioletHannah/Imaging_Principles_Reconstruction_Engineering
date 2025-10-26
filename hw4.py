@@ -65,7 +65,10 @@ def distance_matrix():
     """
     预计算距离矩阵，减少重复计算（向量化实现）
     返回：距离(索引)矩阵，dtype=np.uint32，shape=(sizeplus, sizeplus, Y, X)
-    备注：使用uint32以减少内存占用；对每个发射/接收对先计算单边距离矩阵再相加，避免像素级循环。
+    备注：
+        - 使用uint32以减少内存占用；
+        - 对每个发射/接收对先计算单边距离矩阵再相加，避免像素级循环；
+        - 如果像素到任一传感器连线与Y方向夹角大于30°，则该像素对该传感器对不计入（索引为0）。
     """
     size = num_sensor
     sizeplus = size + 2 * Sensor_Perceive_Range
@@ -80,22 +83,39 @@ def distance_matrix():
     pixel_x = np.arange(X_int) * Pixel_Spacing + Pixel_Spacing / 2       # shape (X,)
     pixel_y = np.arange(Y_int) * Pixel_Spacing + Pixel_Spacing / 2       # shape (Y,)
 
-    # 为减少重复计算，对每个 m 先计算 dist_m(Y,X)，再与每个 n 的 dist_n 相加（向量化）
+    # 角度阈值（弧度）
+    angle_thr = np.deg2rad(30.0)
+
+    # 为减少重复计算，对每个 m 先计算 dist_m(Y,X) 及其角度掩码，再与每个 n 的 dist_n 相加（向量化）
     for m in range(Sensor_Perceive_Range, size + Sensor_Perceive_Range):
-        dx_m = sensor_x[m] - pixel_x                   # shape (X,)
+        dx_m = pixel_x - sensor_x[m]                   # shape (X,) : px - sx
         dist_m = np.sqrt(dx_m[np.newaxis, :]**2 + pixel_y[:, np.newaxis]**2)  # shape (Y,X)
 
+        # 计算像素到传感器 m 的角度掩码（True 表示角度 <= 30°，可接受）
+        angle_m = np.arctan2(np.abs(dx_m)[np.newaxis, :], pixel_y[:, np.newaxis])  # shape (Y,X)
+        mask_m = angle_m <= angle_thr  # shape (Y,X)
+
         for n in range(m, size + Sensor_Perceive_Range):
-            dx_n = sensor_x[n] - pixel_x
+            dx_n = pixel_x - sensor_x[n]
             dist_n = np.sqrt(dx_n[np.newaxis, :]**2 + pixel_y[:, np.newaxis]**2)  # shape (Y,X)
 
+            # 计算像素到传感器 n 的角度掩码
+            angle_n = np.arctan2(np.abs(dx_n)[np.newaxis, :], pixel_y[:, np.newaxis])  # shape (Y,X)
+            mask_n = angle_n <= angle_thr
+
             total_distance = dist_m + dist_n  # shape (Y,X)
-            # 直接向量化计算时间索引并保存为 uint32
+
+            # 向量化计算时间索引并保存为 uint32
             idx = (total_distance / 1000.0 / Sound_Speed * Sensor_Fs).astype(np.uint32)
+
+            # 若任一传感器与像素夹角超限，则不考虑该像素（置0）
+            combined_mask = mask_m & mask_n
+            idx[~combined_mask] = 0
+
             dist_mat[m, n, :, :] = idx
             dist_mat[n, m, :, :] = idx
 
-    np.save('distance_matrix.npy', dist_mat)
+    np.save('distance_matrix_new.npy', dist_mat)
     print("Distance matrix saved as `distance_matrix.npy`")
     return dist_mat
 
@@ -105,7 +125,8 @@ def DAS_reconstruction(data):
     :param data: 超声数据，shape=(传感器单元数, 采样点数)
     :return: 重建图像，shape=(Y, X)
     """
-    idx_matrix = np.load('distance_matrix.npy')  # 预计算距离矩阵
+    # idx_matrix = np.load('distance_matrix.npy')  # 预计算距离矩阵
+    idx_matrix = distance_matrix()
     reconstruct_img = np.zeros((int(Y), int(X)))  # 重建图像初始化
     for i in range(int(X)):
         # dist_to_left = i * Pixel_Spacing + Pixel_Spacing / 2
